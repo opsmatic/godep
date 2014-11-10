@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-var spool = filepath.Join(os.TempDir(), "godep")
-
 var cmdGo = &Command{
 	Usage: "go command [arguments]",
 	Short: "run the go tool in a sandbox",
@@ -25,11 +23,8 @@ is unnecessary and has been disabled. Instead, use
 	Run: runGo,
 }
 
-// Set up a sandbox and run the go tool. The sandbox is built
-// out of specific checked-out revisions of repos. We keep repos
-// and revs materialized on disk under the assumption that disk
-// space is cheap and plentiful, and writing files is slow.
-// Everything is kept in the spool directory.
+// Run the go tool with a modified GOPATH
+// pointing to the included dependency source code.
 func runGo(cmd *Command, args []string) {
 	gopath := prepareGopath()
 	if s := os.Getenv("GOPATH"); s != "" {
@@ -60,19 +55,10 @@ func prepareGopath() (gopath string) {
 	if dir == "" {
 		log.Fatalln("No Godeps found (or in any parent directory)")
 	}
-	if isDir {
-		return filepath.Join(dir, "Godeps", "_workspace")
+	if !isDir {
+		log.Fatalln(noSourceCodeError)
 	}
-	log.Println(strings.TrimSpace(noSourceCodeWarning))
-	g, err := ReadAndLoadGodeps(filepath.Join(dir, "Godeps"))
-	if err != nil {
-		log.Fatalln(err)
-	}
-	gopath, err = sandboxAll(g.Deps)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	return gopath
+	return filepath.Join(dir, "Godeps", "_workspace")
 }
 
 // findGodeps looks for a directory entry "Godeps" in the
@@ -130,48 +116,12 @@ func envNoGopath() (a []string) {
 	return a
 }
 
-// sandboxAll ensures that the commits in deps are available
-// on disk, and returns a GOPATH string that will cause them
-// to be used.
-func sandboxAll(a []Dependency) (gopath string, err error) {
-	var path []string
-	for _, dep := range a {
-		dir, err := sandbox(dep)
-		if err != nil {
-			return "", err
-		}
-		path = append(path, dir)
-	}
-	return strings.Join(path, ":"), nil
-}
+const noSourceCodeError = `
+error: outdated Godeps missing source code
 
-// sandbox ensures that commit d is available on disk,
-// and returns a GOPATH string that will cause it to be used.
-func sandbox(d Dependency) (gopath string, err error) {
-	if !exists(d.RepoPath()) {
-		if err = d.CreateRepo("fast", "main"); err != nil {
-			return "", fmt.Errorf("create repo: %s", err)
-		}
-	}
-	err = d.checkout()
-	if err != nil && d.FastRemotePath() != "" {
-		err = d.fetchAndCheckout("fast")
-	}
-	if err != nil {
-		err = d.fetchAndCheckout("main")
-	}
-	if err != nil {
-		return "", err
-	}
-	return d.Gopath(), nil
-}
+The ability to read this format has been removed.
+See http://goo.gl/RpYs8e for discussion.
 
-const noSourceCodeWarning = `
-warning: outdated Godeps missing source code
-
-The ability to read this format will be removed in the future.
-See http://goo.gl/RpYs8e for a discussion of the upcoming removal.
-
-To avoid this warning, ask the maintainer of this package to run
-'godep save' without flag -copy.
+To avoid this warning, ask the maintainer of this package
+to rerun 'godep save', or use 'godep restore'.
 `
