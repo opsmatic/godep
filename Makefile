@@ -11,4 +11,4 @@ test:
 
 compile:
 	go get
-	go build
+	go build -o godep
